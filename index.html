@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Letters in a Spinning Cube</title>
+  <title>Letters in a Spinning Cube (Bigger Cube)</title>
   <style>
     body { margin: 0; overflow: hidden; background: #000; }
     canvas { display: block; }
@@ -26,14 +26,14 @@
       // Create the physics engine and world.
       const engine = Engine.create();
       const world  = engine.world;
-      // Use a moderate gravity so letters still bounce nicely.
+      // Use a moderate gravity.
       world.gravity.y = 1;
       
-      // Get canvas and context.
+      // Get the canvas and its context.
       const canvas = document.getElementById("canvas");
       const ctx = canvas.getContext("2d");
       
-      // Resize canvas to fill window.
+      // Resize the canvas to fill the window.
       let containerCenter = { x: 0, y: 0 };
       function resizeCanvas() {
         canvas.width = window.innerWidth;
@@ -44,7 +44,7 @@
       resizeCanvas();
       
       // --- Container (Spinning Cube) Parameters ---
-      const containerSize = 400;       // Side length of the square container.
+      const containerSize = 600;       // Increased side length (from 400 to 600).
       const containerThickness = 20;   // Thickness of the walls.
       let containerAngle = 0;          // Current rotation (in radians) of the container.
       
@@ -52,7 +52,7 @@
       // The container is defined with its center at containerCenter.
       function createContainerWalls() {
         const half = containerSize / 2;
-        // Initial positions for containerAngle = 0:
+        // Create four walls for top, bottom, left and right.
         const top    = Bodies.rectangle(containerCenter.x, containerCenter.y - half, containerSize, containerThickness, { isStatic: true });
         const bottom = Bodies.rectangle(containerCenter.x, containerCenter.y + half, containerSize, containerThickness, { isStatic: true });
         const left   = Bodies.rectangle(containerCenter.x - half, containerCenter.y, containerThickness, containerSize, { isStatic: true });
@@ -74,7 +74,7 @@
             y: v.x * Math.sin(angle) + v.y * Math.cos(angle)
           };
         }
-        // Define local offsets for each wall (for containerAngle=0).
+        // Define local offsets for each wall (when containerAngle = 0).
         const offsets = {
           top:    { x: 0,     y: -half },
           bottom: { x: 0,     y: half },
@@ -91,7 +91,6 @@
           };
           // Update body position and angle.
           Body.setPosition(containerWalls[side], newPos);
-          // All walls adopt the container's rotation.
           Body.setAngle(containerWalls[side], containerAngle);
         }
       }
@@ -106,13 +105,13 @@
         const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff", "#ffffff"];
         return colors[Math.floor(Math.random() * colors.length)];
       }
-      // Spawn a letter inside the container. Letters are created in container-local coordinates
-      // (so they are guaranteed to be inside) and then converted to world coordinates.
+      // Spawn a letter inside the container.
+      // Letters are spawned using container-local coordinates, then rotated into world coordinates.
       function spawnLetter() {
-        const margin = 40; // so letters don't spawn too near the walls.
+        const margin = 40; // Leave some space from the walls.
         const effectiveSize = containerSize - margin;
         const halfEffective = effectiveSize / 2;
-        // Choose a random point in the container (local coordinates).
+        // Random local coordinates.
         const localX = Common.random(-halfEffective, halfEffective);
         const localY = Common.random(-halfEffective, halfEffective);
         // Rotate local coordinates by current containerAngle.
@@ -120,7 +119,7 @@
         const sin = Math.sin(containerAngle);
         const rotatedX = localX * cos - localY * sin;
         const rotatedY = localX * sin + localY * cos;
-        // World coordinates are containerCenter + rotated local offset.
+        // World coordinates.
         const x = containerCenter.x + rotatedX;
         const y = containerCenter.y + rotatedY;
         
@@ -145,7 +144,7 @@
       
       // --- Render Loop ---
       function render() {
-        // Update physics engine.
+        // Update physics.
         Engine.update(engine, 1000 / 60);
         
         // Update container rotation.
