@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Letters in a Spinning Cube</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  
+  <!-- Matter.js physics engine -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      // Alias Matter.js modules.
+      const Engine   = Matter.Engine,
+            World    = Matter.World,
+            Bodies   = Matter.Bodies,
+            Body     = Matter.Body,
+            Common   = Matter.Common;
+      
+      // Create the physics engine and world.
+      const engine = Engine.create();
+      const world  = engine.world;
+      // Use a moderate gravity so letters still bounce nicely.
+      world.gravity.y = 1;
+      
+      // Get canvas and context.
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      
+      // Resize canvas to fill window.
+      let containerCenter = { x: 0, y: 0 };
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        containerCenter = { x: canvas.width / 2, y: canvas.height / 2 };
+      }
+      window.addEventListener("resize", resizeCanvas);
+      resizeCanvas();
+      
+      // --- Container (Spinning Cube) Parameters ---
+      const containerSize = 400;       // Side length of the square container.
+      const containerThickness = 20;   // Thickness of the walls.
+      let containerAngle = 0;          // Current rotation (in radians) of the container.
+      
+      // Create container walls (as static bodies).
+      // The container is defined with its center at containerCenter.
+      function createContainerWalls() {
+        const half = containerSize / 2;
+        // Initial positions for containerAngle = 0:
+        const top    = Bodies.rectangle(containerCenter.x, containerCenter.y - half, containerSize, containerThickness, { isStatic: true });
+        const bottom = Bodies.rectangle(containerCenter.x, containerCenter.y + half, containerSize, containerThickness, { isStatic: true });
+        const left   = Bodies.rectangle(containerCenter.x - half, containerCenter.y, containerThickness, containerSize, { isStatic: true });
+        const right  = Bodies.rectangle(containerCenter.x + half, containerCenter.y, containerThickness, containerSize, { isStatic: true });
+        // Mark them as container walls.
+        top.isContainer = bottom.isContainer = left.isContainer = right.isContainer = true;
+        World.add(world, [top, bottom, left, right]);
+        return { top, bottom, left, right };
+      }
+      let containerWalls = createContainerWalls();
+      
+      // Update the positions and angles of container walls based on the current containerAngle.
+      function updateContainerWalls() {
+        const half = containerSize / 2;
+        // Helper: rotate a 2D vector by an angle.
+        function rotateVector(v, angle) {
+          return {
+            x: v.x * Math.cos(angle) - v.y * Math.sin(angle),
+            y: v.x * Math.sin(angle) + v.y * Math.cos(angle)
+          };
+        }
+        // Define local offsets for each wall (for containerAngle=0).
+        const offsets = {
+          top:    { x: 0,     y: -half },
+          bottom: { x: 0,     y: half },
+          left:   { x: -half, y: 0 },
+          right:  { x: half,  y: 0 }
+        };
+        // For each wall, compute its new world position by rotating its offset and adding containerCenter.
+        for (const side in offsets) {
+          const local = offsets[side];
+          const rotated = rotateVector(local, containerAngle);
+          const newPos = {
+            x: containerCenter.x + rotated.x,
+            y: containerCenter.y + rotated.y
+          };
+          // Update body position and angle.
+          Body.setPosition(containerWalls[side], newPos);
+          // All walls adopt the container's rotation.
+          Body.setAngle(containerWalls[side], containerAngle);
+        }
+      }
+      
+      // --- Letter Spawning ---
+      // Helper: returns a random uppercase letter.
+      function randomLetter() {
+        return String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      }
+      // Helper: returns a random bright color.
+      function randomColor() {
+        const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff", "#ffffff"];
+        return colors[Math.floor(Math.random() * colors.length)];
+      }
+      // Spawn a letter inside the container. Letters are created in container-local coordinates
+      // (so they are guaranteed to be inside) and then converted to world coordinates.
+      function spawnLetter() {
+        const margin = 40; // so letters don't spawn too near the walls.
+        const effectiveSize = containerSize - margin;
+        const halfEffective = effectiveSize / 2;
+        // Choose a random point in the container (local coordinates).
+        const localX = Common.random(-halfEffective, halfEffective);
+        const localY = Common.random(-halfEffective, halfEffective);
+        // Rotate local coordinates by current containerAngle.
+        const cos = Math.cos(containerAngle);
+        const sin = Math.sin(containerAngle);
+        const rotatedX = localX * cos - localY * sin;
+        const rotatedY = localX * sin + localY * cos;
+        // World coordinates are containerCenter + rotated local offset.
+        const x = containerCenter.x + rotatedX;
+        const y = containerCenter.y + rotatedY;
+        
+        const letter = randomLetter();
+        const size = Common.random(30, 80);
+        const letterBody = Bodies.rectangle(x, y, size, size, {
+          restitution: 0.3,
+          friction: 0.1,
+          density: 0.001
+        });
+        // Give a slight random initial angle.
+        Body.setAngle(letterBody, Common.random(-0.3, 0.3));
+        letterBody.customData = {
+          letter: letter,
+          size: size,
+          color: randomColor()
+        };
+        World.add(world, letterBody);
+      }
+      // Spawn letters very frequently (every 100 ms).
+      setInterval(spawnLetter, 100);
+      
+      // --- Render Loop ---
+      function render() {
+        // Update physics engine.
+        Engine.update(engine, 1000 / 60);
+        
+        // Update container rotation.
+        containerAngle += 0.01; // Adjust rotation speed as desired.
+        updateContainerWalls();
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw all bodies.
+        world.bodies.forEach(body => {
+          if (body.customData && body.customData.letter) {
+            // Render letters.
+            ctx.save();
+            ctx.translate(body.position.x, body.position.y);
+            ctx.rotate(body.angle);
+            ctx.font = body.customData.size + "px sans-serif";
+            ctx.fillStyle = body.customData.color;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(body.customData.letter, 0, 0);
+            ctx.restore();
+          } else if (body.isContainer) {
+            // Render container walls as white.
+            ctx.beginPath();
+            ctx.moveTo(body.vertices[0].x, body.vertices[0].y);
+            for (let j = 1; j < body.vertices.length; j++) {
+              ctx.lineTo(body.vertices[j].x, body.vertices[j].y);
+            }
+            ctx.closePath();
+            ctx.fillStyle = "#fff";
+            ctx.fill();
+          }
+        });
+        requestAnimationFrame(render);
+      }
+      render();
+    });
+  </script>
+</body>
+</html>
