@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Morphing Container with Falling Letters (Spawn Inside)</title>
+  <title>Falling Letters in a Sharply Changing Container</title>
   <style>
     body { margin: 0; overflow: hidden; background: #000; }
     canvas { display: block; }
@@ -13,25 +13,26 @@
   
   <!-- Matter.js physics engine -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+  
   <script>
     document.addEventListener("DOMContentLoaded", function() {
       // Alias Matter.js modules.
-      const Engine   = Matter.Engine,
-            World    = Matter.World,
-            Bodies   = Matter.Bodies,
-            Body     = Matter.Body,
-            Common   = Matter.Common;
+      const Engine = Matter.Engine,
+            World  = Matter.World,
+            Bodies = Matter.Bodies,
+            Body   = Matter.Body,
+            Common = Matter.Common;
       
-      // Create physics engine and world.
+      // Create the physics engine and world.
       const engine = Engine.create();
       const world  = engine.world;
-      world.gravity.y = 1; // moderate gravity
-
+      world.gravity.y = 1; // Moderate gravity.
+      
       // Get canvas and context.
       const canvas = document.getElementById("canvas");
       const ctx = canvas.getContext("2d");
       
-      // Resize canvas to full window.
+      // Resize canvas to fill the window.
       let containerCenter = { x: 0, y: 0 };
       function resizeCanvas() {
         canvas.width = window.innerWidth;
@@ -41,20 +42,15 @@
       window.addEventListener("resize", resizeCanvas);
       resizeCanvas();
       
-      // --- Container Morphing Setup ---
-      const containerSize = 600;    // nominal side length of container
-      const R = containerSize / 2;    // reference "radius" for generating shapes
-      const N = 50;                 // number of vertices for polygon approximation
+      // --- Container Shape Setup ---
+      // We'll use three preset shapes (square, circle, triangle) defined as polygons in local coordinates.
+      const containerSize = 600;  // Nominal size.
+      const R = containerSize / 2;  // Reference "radius".
+      const N = 50; // Number of vertices to approximate shapes.
       
-      let containerAngle = 0;       // container rotation (radians)
-      const morphPeriod = 15000;    // full morph cycle in ms
-      
-      // Global variable to store the current container shape in local coordinates.
-      let currentLocalVerts = null;
-      
-      // Generate vertex sets (in local coordinates, centered at (0,0)).
+      // Generate vertices for a square (inscribed in a circle of radius R).
       function generateSquareVertices(N, R) {
-        const L = Math.SQRT2 * R;  // side length of inscribed square
+        const L = Math.SQRT2 * R; // Side length of square.
         const perim = 4 * L;
         let verts = [];
         for (let i = 0; i < N; i++) {
@@ -78,6 +74,7 @@
         return verts;
       }
       
+      // Generate vertices for a circle.
       function generateCircleVertices(N, R) {
         let verts = [];
         for (let i = 0; i < N; i++) {
@@ -87,17 +84,19 @@
         return verts;
       }
       
+      // Generate vertices for an equilateral triangle.
       function generateTriangleVertices(N, R) {
         let corners = [];
         for (let i = 0; i < 3; i++) {
-          const angle = -Math.PI/2 + i * (2*Math.PI/3);
+          const angle = -Math.PI/2 + i * (2 * Math.PI / 3);
           corners.push({ x: R * Math.cos(angle), y: R * Math.sin(angle) });
         }
+        // Distribute N points evenly along the triangle's perimeter.
         let sideLengths = [];
         let totalPerim = 0;
         for (let i = 0; i < 3; i++) {
           const p1 = corners[i];
-          const p2 = corners[(i+1)%3];
+          const p2 = corners[(i + 1) % 3];
           const d = Math.hypot(p2.x - p1.x, p2.y - p1.y);
           sideLengths.push(d);
           totalPerim += d;
@@ -110,7 +109,7 @@
             if (d >= acc && d < acc + sideLengths[j]) {
               const t = (d - acc) / sideLengths[j];
               const p1 = corners[j];
-              const p2 = corners[(j+1)%3];
+              const p2 = corners[(j + 1) % 3];
               const x = p1.x + t * (p2.x - p1.x);
               const y = p1.y + t * (p2.y - p1.y);
               verts.push({ x: x, y: y });
@@ -126,53 +125,37 @@
       const circleVerts = generateCircleVertices(N, R);
       const triangleVerts = generateTriangleVertices(N, R);
       
-      // Interpolate between two vertex sets.
-      function interpolateVerts(vertsA, vertsB, t) {
-        let verts = [];
-        for (let i = 0; i < vertsA.length; i++) {
-          verts.push({
-            x: vertsA[i].x * (1-t) + vertsB[i].x * t,
-            y: vertsA[i].y * (1-t) + vertsB[i].y * t
-          });
-        }
-        return verts;
-      }
-      
-      // Compute current container vertices (local coordinates) by morphing between shapes.
+      // Choose the container shape based on the current phase.
+      // The phase will cycle from 0 to 1 over a fixed period, with sharp transitions:
+      // phase in [0, 1/3)   -> square
+      // phase in [1/3, 2/3) -> circle
+      // phase in [2/3, 1)   -> triangle
       function getContainerVertices(phase) {
-        let verts;
-        if (phase < 1/3) {
-          let t = phase / (1/3);
-          verts = interpolateVerts(squareVerts, circleVerts, t);
-        } else if (phase < 2/3) {
-          let t = (phase - 1/3) / (1/3);
-          verts = interpolateVerts(circleVerts, triangleVerts, t);
-        } else {
-          let t = (phase - 2/3) / (1/3);
-          verts = interpolateVerts(triangleVerts, squareVerts, t);
-        }
-        return verts;
+        if (phase < 1/3) return squareVerts;
+        else if (phase < 2/3) return circleVerts;
+        else return triangleVerts;
       }
       
-      // Create the container body (static). We'll update its vertices every frame.
+      // Create the container body initially (using squareVerts).
       let containerBody = Bodies.fromVertices(containerCenter.x, containerCenter.y, squareVerts, { isStatic: true, render: { fillStyle: "#fff" } }, true);
       World.add(world, containerBody);
       
-      // --- Point-in-Polygon and Sampling ---
+      // --- Sampling Points Inside a Polygon (for letter spawn) ---
+      // Use a simple ray-casting algorithm.
       function pointInPolygon(point, polygon) {
         let inside = false;
         for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
           const xi = polygon[i].x, yi = polygon[i].y;
           const xj = polygon[j].x, yj = polygon[j].y;
           const intersect = ((yi > point.y) !== (yj > point.y)) &&
-                            (point.x < (xj - xi) * (point.y - yi) / (yj - yi + 0.0000001) + xi);
+                            (point.x < (xj - xi) * (point.y - yi) / ((yj - yi) || 0.000001) + xi);
           if (intersect) inside = !inside;
         }
         return inside;
       }
       
       function samplePointInPolygon(polygon) {
-        // Compute bounding box.
+        // Compute the bounding box.
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         polygon.forEach(p => {
           if (p.x < minX) minX = p.x;
@@ -180,23 +163,18 @@
           if (p.y < minY) minY = p.y;
           if (p.y > maxY) maxY = p.y;
         });
-        // Rejection sampling.
         let pt;
         for (let i = 0; i < 100; i++) {
           pt = {
             x: minX + Math.random() * (maxX - minX),
             y: minY + Math.random() * (maxY - minY)
           };
-          if (pointInPolygon(pt, polygon)) {
-            return pt;
-          }
+          if (pointInPolygon(pt, polygon)) return pt;
         }
-        // Fallback: return center.
         return { x: 0, y: 0 };
       }
       
       // --- Letter Spawning ---
-      // Helpers for letters.
       function randomLetter() {
         return String.fromCharCode(65 + Math.floor(Math.random() * 26));
       }
@@ -205,12 +183,14 @@
         return colors[Math.floor(Math.random() * colors.length)];
       }
       
+      // Current container local vertices (sharp shape) will be updated each render.
+      let currentLocalVerts = squareVerts;
       // Spawn a letter inside the container.
       function spawnLetter() {
-        if (!currentLocalVerts) return;  // wait until container shape is computed
-        // Sample a random point inside the container (in local coordinates).
+        if (!currentLocalVerts) return;
+        // Sample a random point in container-local coordinates.
         const localPt = samplePointInPolygon(currentLocalVerts);
-        // Transform the local point to world coordinates using containerAngle and containerCenter.
+        // Transform the local point into world coordinates.
         const cosA = Math.cos(containerAngle);
         const sinA = Math.sin(containerAngle);
         const worldX = containerCenter.x + localPt.x * cosA - localPt.y * sinA;
@@ -234,15 +214,17 @@
       setInterval(spawnLetter, 100);
       
       // --- Render Loop ---
+      let containerAngle = 0;
+      const shapePeriod = 15000; // 15-second cycle.
       function render() {
         Engine.update(engine, 1000 / 60);
         
-        // Compute morph phase and update container shape.
+        // Determine phase and select container shape (sharp transitions).
         const now = Date.now();
-        const phase = (now % morphPeriod) / morphPeriod;
+        const phase = (now % shapePeriod) / shapePeriod;
         currentLocalVerts = getContainerVertices(phase);
         
-        // Transform local container vertices to world coordinates.
+        // Transform currentLocalVerts into world coordinates.
         let worldVerts = currentLocalVerts.map(v => {
           return {
             x: containerCenter.x + v.x * Math.cos(containerAngle) - v.y * Math.sin(containerAngle),
@@ -269,7 +251,6 @@
             ctx.fillText(body.customData.letter, 0, 0);
             ctx.restore();
           } else if (body === containerBody) {
-            // Render container as a white filled shape.
             ctx.beginPath();
             ctx.moveTo(body.vertices[0].x, body.vertices[0].y);
             for (let i = 1; i < body.vertices.length; i++) {
