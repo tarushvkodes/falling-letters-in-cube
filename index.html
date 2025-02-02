@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Falling Letters in a Sharply Changing Container</title>
+  <title>Falling Letters in a Spinning Cube (Outline)</title>
   <style>
     body { margin: 0; overflow: hidden; background: #000; }
     canvas { display: block; }
@@ -23,10 +23,11 @@
             Body   = Matter.Body,
             Common = Matter.Common;
       
-      // Create the physics engine and world.
+      // Create engine and world.
       const engine = Engine.create();
       const world  = engine.world;
-      world.gravity.y = 1; // Moderate gravity.
+      // Moderate gravity.
+      world.gravity.y = 1;
       
       // Get canvas and context.
       const canvas = document.getElementById("canvas");
@@ -42,139 +43,55 @@
       window.addEventListener("resize", resizeCanvas);
       resizeCanvas();
       
-      // --- Container Shape Setup ---
-      // We'll use three preset shapes (square, circle, triangle) defined as polygons in local coordinates.
-      const containerSize = 600;  // Nominal size.
-      const R = containerSize / 2;  // Reference "radius".
-      const N = 50; // Number of vertices to approximate shapes.
+      // --- Container (Spinning Cube) Setup ---
+      const containerSize = 600;       // Side length of the container.
+      const wallThickness = 20;        // Thickness of each wall.
+      let containerAngle = 0;          // Current rotation (in radians) of the container.
       
-      // Generate vertices for a square (inscribed in a circle of radius R).
-      function generateSquareVertices(N, R) {
-        const L = Math.SQRT2 * R; // Side length of square.
-        const perim = 4 * L;
-        let verts = [];
-        for (let i = 0; i < N; i++) {
-          const d = (i / N) * perim;
-          let x, y;
-          if (d < L) {
-            x = -L/2 + d;
-            y = -L/2;
-          } else if (d < 2 * L) {
-            x = L/2;
-            y = -L/2 + (d - L);
-          } else if (d < 3 * L) {
-            x = L/2 - (d - 2*L);
-            y = L/2;
-          } else {
-            x = -L/2;
-            y = L/2 - (d - 3*L);
-          }
-          verts.push({ x: x, y: y });
-        }
-        return verts;
+      // Create container walls as static bodies.
+      // We'll use four rectangles for top, bottom, left, and right walls.
+      function createContainerWalls() {
+        const half = containerSize / 2;
+        const top    = Bodies.rectangle(containerCenter.x, containerCenter.y - half, containerSize, wallThickness, { isStatic: true });
+        const bottom = Bodies.rectangle(containerCenter.x, containerCenter.y + half, containerSize, wallThickness, { isStatic: true });
+        const left   = Bodies.rectangle(containerCenter.x - half, containerCenter.y, wallThickness, containerSize, { isStatic: true });
+        const right  = Bodies.rectangle(containerCenter.x + half, containerCenter.y, wallThickness, containerSize, { isStatic: true });
+        // Mark them so we can recognize them in rendering.
+        top.label = bottom.label = left.label = right.label = "containerWall";
+        World.add(world, [top, bottom, left, right]);
+        return { top, bottom, left, right };
       }
+      let walls = createContainerWalls();
       
-      // Generate vertices for a circle.
-      function generateCircleVertices(N, R) {
-        let verts = [];
-        for (let i = 0; i < N; i++) {
-          const angle = (i / N) * 2 * Math.PI;
-          verts.push({ x: R * Math.cos(angle), y: R * Math.sin(angle) });
-        }
-        return verts;
-      }
-      
-      // Generate vertices for an equilateral triangle.
-      function generateTriangleVertices(N, R) {
-        let corners = [];
-        for (let i = 0; i < 3; i++) {
-          const angle = -Math.PI/2 + i * (2 * Math.PI / 3);
-          corners.push({ x: R * Math.cos(angle), y: R * Math.sin(angle) });
-        }
-        // Distribute N points evenly along the triangle's perimeter.
-        let sideLengths = [];
-        let totalPerim = 0;
-        for (let i = 0; i < 3; i++) {
-          const p1 = corners[i];
-          const p2 = corners[(i + 1) % 3];
-          const d = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-          sideLengths.push(d);
-          totalPerim += d;
-        }
-        let verts = [];
-        for (let i = 0; i < N; i++) {
-          const d = (i / N) * totalPerim;
-          let acc = 0;
-          for (let j = 0; j < 3; j++) {
-            if (d >= acc && d < acc + sideLengths[j]) {
-              const t = (d - acc) / sideLengths[j];
-              const p1 = corners[j];
-              const p2 = corners[(j + 1) % 3];
-              const x = p1.x + t * (p2.x - p1.x);
-              const y = p1.y + t * (p2.y - p1.y);
-              verts.push({ x: x, y: y });
-              break;
-            }
-            acc += sideLengths[j];
-          }
-        }
-        return verts;
-      }
-      
-      const squareVerts = generateSquareVertices(N, R);
-      const circleVerts = generateCircleVertices(N, R);
-      const triangleVerts = generateTriangleVertices(N, R);
-      
-      // Choose the container shape based on the current phase.
-      // The phase will cycle from 0 to 1 over a fixed period, with sharp transitions:
-      // phase in [0, 1/3)   -> square
-      // phase in [1/3, 2/3) -> circle
-      // phase in [2/3, 1)   -> triangle
-      function getContainerVertices(phase) {
-        if (phase < 1/3) return squareVerts;
-        else if (phase < 2/3) return circleVerts;
-        else return triangleVerts;
-      }
-      
-      // Create the container body initially (using squareVerts).
-      let containerBody = Bodies.fromVertices(containerCenter.x, containerCenter.y, squareVerts, { isStatic: true, render: { fillStyle: "#fff" } }, true);
-      World.add(world, containerBody);
-      
-      // --- Sampling Points Inside a Polygon (for letter spawn) ---
-      // Use a simple ray-casting algorithm.
-      function pointInPolygon(point, polygon) {
-        let inside = false;
-        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-          const xi = polygon[i].x, yi = polygon[i].y;
-          const xj = polygon[j].x, yj = polygon[j].y;
-          const intersect = ((yi > point.y) !== (yj > point.y)) &&
-                            (point.x < (xj - xi) * (point.y - yi) / ((yj - yi) || 0.000001) + xi);
-          if (intersect) inside = !inside;
-        }
-        return inside;
-      }
-      
-      function samplePointInPolygon(polygon) {
-        // Compute the bounding box.
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        polygon.forEach(p => {
-          if (p.x < minX) minX = p.x;
-          if (p.x > maxX) maxX = p.x;
-          if (p.y < minY) minY = p.y;
-          if (p.y > maxY) maxY = p.y;
-        });
-        let pt;
-        for (let i = 0; i < 100; i++) {
-          pt = {
-            x: minX + Math.random() * (maxX - minX),
-            y: minY + Math.random() * (maxY - minY)
+      // Update wall positions and angles according to the current containerAngle.
+      function updateWalls() {
+        const half = containerSize / 2;
+        // Local positions for walls when angle is zero.
+        const positions = {
+          top:    { x: 0, y: -half },
+          bottom: { x: 0, y: half },
+          left:   { x: -half, y: 0 },
+          right:  { x: half, y: 0 }
+        };
+        // Rotate and translate each wall.
+        for (const side in positions) {
+          const pos = positions[side];
+          const rotated = {
+            x: pos.x * Math.cos(containerAngle) - pos.y * Math.sin(containerAngle),
+            y: pos.x * Math.sin(containerAngle) + pos.y * Math.cos(containerAngle)
           };
-          if (pointInPolygon(pt, polygon)) return pt;
+          const newPos = {
+            x: containerCenter.x + rotated.x,
+            y: containerCenter.y + rotated.y
+          };
+          Body.setPosition(walls[side], newPos);
+          // Set the wall's angle to match the container.
+          Body.setAngle(walls[side], containerAngle);
         }
-        return { x: 0, y: 0 };
       }
       
       // --- Letter Spawning ---
+      // Helper functions.
       function randomLetter() {
         return String.fromCharCode(65 + Math.floor(Math.random() * 26));
       }
@@ -183,18 +100,21 @@
         return colors[Math.floor(Math.random() * colors.length)];
       }
       
-      // Current container local vertices (sharp shape) will be updated each render.
-      let currentLocalVerts = squareVerts;
-      // Spawn a letter inside the container.
+      // Letters will spawn at random positions inside the container.
+      // We compute positions in container-local coordinates (a square of side (containerSize - 40))
+      // and then rotate/translate them into world coordinates.
       function spawnLetter() {
-        if (!currentLocalVerts) return;
-        // Sample a random point in container-local coordinates.
-        const localPt = samplePointInPolygon(currentLocalVerts);
-        // Transform the local point into world coordinates.
+        const margin = 40;
+        const effectiveSize = containerSize - margin;
+        const halfEffective = effectiveSize / 2;
+        // Random local coordinates.
+        const localX = Common.random(-halfEffective, halfEffective);
+        const localY = Common.random(-halfEffective, halfEffective);
+        // Rotate the local point by containerAngle.
         const cosA = Math.cos(containerAngle);
         const sinA = Math.sin(containerAngle);
-        const worldX = containerCenter.x + localPt.x * cosA - localPt.y * sinA;
-        const worldY = containerCenter.y + localPt.x * sinA + localPt.y * cosA;
+        const worldX = containerCenter.x + localX * cosA - localY * sinA;
+        const worldY = containerCenter.y + localX * sinA + localY * cosA;
         
         const letter = randomLetter();
         const size = Common.random(30, 80);
@@ -204,41 +124,23 @@
           density: 0.001
         });
         Body.setAngle(letterBody, Common.random(-0.3, 0.3));
-        letterBody.customData = {
-          letter: letter,
-          size: size,
-          color: randomColor()
-        };
+        // Save letter details for rendering.
+        letterBody.customData = { letter, size, color: randomColor() };
         World.add(world, letterBody);
       }
-      setInterval(spawnLetter, 100);
+      setInterval(spawnLetter, 100); // Spawn a letter every 100 ms.
       
       // --- Render Loop ---
-      let containerAngle = 0;
-      const shapePeriod = 15000; // 15-second cycle.
       function render() {
         Engine.update(engine, 1000 / 60);
-        
-        // Determine phase and select container shape (sharp transitions).
-        const now = Date.now();
-        const phase = (now % shapePeriod) / shapePeriod;
-        currentLocalVerts = getContainerVertices(phase);
-        
-        // Transform currentLocalVerts into world coordinates.
-        let worldVerts = currentLocalVerts.map(v => {
-          return {
-            x: containerCenter.x + v.x * Math.cos(containerAngle) - v.y * Math.sin(containerAngle),
-            y: containerCenter.y + v.x * Math.sin(containerAngle) + v.y * Math.cos(containerAngle)
-          };
-        });
-        Matter.Body.setVertices(containerBody, worldVerts);
+        updateWalls();
         
         // Increment container rotation.
         containerAngle += 0.005;
         
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Render all bodies.
+        // Render letters.
         world.bodies.forEach(body => {
           if (body.customData && body.customData.letter) {
             ctx.save();
@@ -250,21 +152,26 @@
             ctx.textBaseline = "middle";
             ctx.fillText(body.customData.letter, 0, 0);
             ctx.restore();
-          } else if (body === containerBody) {
-            ctx.beginPath();
-            ctx.moveTo(body.vertices[0].x, body.vertices[0].y);
-            for (let i = 1; i < body.vertices.length; i++) {
-              ctx.lineTo(body.vertices[i].x, body.vertices[i].y);
-            }
-            ctx.closePath();
-            ctx.fillStyle = "#fff";
-            ctx.fill();
           }
         });
+        
+        // Render container walls as an outline.
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = wallThickness;
+        for (const side in walls) {
+          const wall = walls[side];
+          ctx.beginPath();
+          wall.vertices.forEach((v, i) => {
+            if (i === 0) ctx.moveTo(v.x, v.y);
+            else ctx.lineTo(v.x, v.y);
+          });
+          ctx.closePath();
+          ctx.stroke();
+        }
         requestAnimationFrame(render);
       }
       render();
     });
   </script>
 </body>
-</html>
+</html> 
